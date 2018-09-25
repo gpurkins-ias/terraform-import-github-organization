@@ -4,9 +4,9 @@
 ###
 ## GLOBAL VARIABLES
 ###
-GITHUB_TOKEN=${GITHUB_TOKEN:-''}
-ORG=${ORG:-''}
-API_URL_PREFIX=${API_URL_PREFIX:-'https://github.com'}
+GITHUB_TOKEN=''
+ORG='integralads'
+API_URL_PREFIX=${API_URL_PREFIX:-'https://api.github.com'}
 
 ###
 ## FUNCTIONS
@@ -121,60 +121,64 @@ import_teams () {
   
     TEAM_NAME=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .name)
 
+    TEAM_SLUG=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .slug)
+
     TEAM_PRIVACY=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .privacy)
   
     TEAM_DESCRIPTION=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .description)
   
     if [[ "$TEAM_PRIVACY" == "closed" ]]; then
-      cat >> github-teams-$TEAM_NAME.tf << EOF
-resource "github_team" "$TEAM_NAME" {
+      cat >> github-teams-$TEAM_SLUG.tf << EOF
+resource "github_team" "$TEAM_SLUG" {
   name        = "$TEAM_NAME"
   description = "$TEAM_DESCRIPTION"
   privacy     = "closed"
+  slug        = "$TEAM_SLUG"
 }
 EOF
     elif [[ "$TEAM_PRIVACY" == "secret" ]]; then
-      cat >> github-teams-$TEAM_NAME.tf << EOF
-resource "github_team" "$TEAM_NAME" {
+      cat >> github-teams-$TEAM_SLUG.tf << EOF
+resource "github_team" "$TEAM_SLUG" {
   name        = "$TEAM_NAME"
   description = "$TEAM_DESCRIPTION"
   privacy     = "secret"
+  slug        = "$TEAM_SLUG"
 }
 EOF
     fi
 
-    terraform import github_team.$TEAM_NAME $i
+    terraform import \"github_team.$TEAM_SLUG\" $i
   done
 }
 
 # Team Memberships 
 import_team_memberships () {
-  for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/teams?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r 'sort_by(.name) | .[] | .id'); do
+  for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/teams?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r 'sort_by(.slug) | .[] | .id'); do
   
-  TEAM_NAME=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .name)
+  TEAM_NAME=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .slug)
   
     for j in $(curl -s "${API_URL_PREFIX}/teams/$i/members?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .[].login); do
     
       TEAM_ROLE=$(curl -s "${API_URL_PREFIX}/teams/$i/memberships/$j?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .role)
 
       if [[ "$TEAM_ROLE" == "maintainer" ]]; then
-        cat >> github-team-memberships-$TEAM_NAME.tf << EOF
-resource "github_team_membership" "$TEAM_NAME-$j" {
+        cat >> github-team-memberships-$TEAM_SLUG.tf << EOF
+resource "github_team_membership" "$TEAM_SLUG-$j" {
   username    = "$j"
   team_id     = "\${github_team.$TEAM_NAME.id}"
   role        = "maintainer"
 }
 EOF
       elif [[ "$TEAM_ROLE" == "member" ]]; then
-        cat >> github-team-memberships-$TEAM_NAME.tf << EOF
-resource "github_team_membership" "$TEAM_NAME-$j" {
+        cat >> github-team-memberships-$TEAM_SLUG.tf << EOF
+resource "github_team_membership" "$TEAM_SLUG-$j" {
   username    = "$j"
   team_id     = "\${github_team.$TEAM_NAME.id}"
   role        = "member"
 }
 EOF
       fi
-      terraform import github_team_membership.$TEAM_NAME-$j $i:$j
+      terraform import github_team_membership.$TEAM_SLUG-$j $i:$j
     done
   done
 }
@@ -199,14 +203,15 @@ get_team_repos () {
     
     TERRAFORM_TEAM_REPO_NAME=$(echo $i | tr  "."  "-")
     TEAM_NAME=$(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID?access_token=$GITHUB_TOKEN" | jq -r .name)
+    TEAM_SLUG=$(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID?access_token=$GITHUB_TOKEN" | jq -r .slug)
 
     ADMIN_PERMS=$(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID/repos/$ORG/$i?access_token=$GITHUB_TOKEN" -H "Accept: application/vnd.github.v3.repository+json" | jq -r .permissions.admin )
     PUSH_PERMS=$(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID/repos/$ORG/$i?access_token=$GITHUB_TOKEN" -H "Accept: application/vnd.github.v3.repository+json" | jq -r .permissions.push )
     PULL_PERMS=$(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID/repos/$ORG/$i?access_token=$GITHUB_TOKEN" -H "Accept: application/vnd.github.v3.repository+json" | jq -r .permissions.pull )
   
     if [[ "$ADMIN_PERMS" == "true" ]]; then
-      cat >> github-teams-$TEAM_NAME.tf << EOF
-resource "github_team_repository" "$TEAM_NAME-$TERRAFORM_TEAM_REPO_NAME" {
+      cat >> github-teams-$TEAM_SLUG.tf << EOF
+resource "github_team_repository" "$TEAM_SLUG-$TERRAFORM_TEAM_REPO_NAME" {
   team_id    = "$TEAM_ID"
   repository = "$i"
   permission = "admin"
@@ -214,8 +219,8 @@ resource "github_team_repository" "$TEAM_NAME-$TERRAFORM_TEAM_REPO_NAME" {
 
 EOF
     elif [[ "$PUSH_PERMS" == "true" ]]; then
-      cat >> github-teams-$TEAM_NAME.tf << EOF
-resource "github_team_repository" "$TEAM_NAME-$TERRAFORM_TEAM_REPO_NAME" {
+      cat >> github-teams-$TEAM_SLUG.tf << EOF
+resource "github_team_repository" "$TEAM_SLUG-$TERRAFORM_TEAM_REPO_NAME" {
   team_id    = "$TEAM_ID"
   repository = "$i"
   permission = "push"
@@ -223,8 +228,8 @@ resource "github_team_repository" "$TEAM_NAME-$TERRAFORM_TEAM_REPO_NAME" {
 
 EOF
     elif [[ "$PULL_PERMS" == "true" ]]; then
-      cat >> github-teams-$TEAM_NAME.tf << EOF
-resource "github_team_repository" "$TEAM_NAME-$TERRAFORM_TEAM_REPO_NAME" {
+      cat >> github-teams-$TEAM_SLUG.tf << EOF
+resource "github_team_repository" "$TEAM_SLUG-$TERRAFORM_TEAM_REPO_NAME" {
   team_id    = "$TEAM_ID"
   repository = "$i"
   permission = "pull"
@@ -232,7 +237,7 @@ resource "github_team_repository" "$TEAM_NAME-$TERRAFORM_TEAM_REPO_NAME" {
 
 EOF
     fi
-    terraform import github_team_repository.$TEAM_NAME-$TERRAFORM_TEAM_REPO_NAME $TEAM_ID:$i
+    terraform import github_team_repository.$TEAM_SLUG-$TERRAFORM_TEAM_REPO_NAME $TEAM_ID:$i
     done
   done
 }
