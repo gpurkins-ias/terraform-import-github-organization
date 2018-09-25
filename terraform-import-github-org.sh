@@ -4,7 +4,7 @@
 ###
 ## GLOBAL VARIABLES
 ###
-GITHUB_TOKEN=''
+GITHUB_TOKEN='251daeb6b0bf671fe26ddab34b4731733b5a00a0'
 ORG='integralads'
 API_URL_PREFIX=${API_URL_PREFIX:-'https://api.github.com'}
 
@@ -162,23 +162,23 @@ import_team_memberships () {
       TEAM_ROLE=$(curl -s "${API_URL_PREFIX}/teams/$i/memberships/$j?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .role)
 
       if [[ "$TEAM_ROLE" == "maintainer" ]]; then
-        cat >> github-team-memberships-$TEAM_SLUG.tf << EOF
-resource "github_team_membership" "$TEAM_SLUG-$j" {
+        cat >> github-team-memberships-$TEAM_NAME.tf << EOF
+resource "github_team_membership" "$TEAM_NAME-$j" {
   username    = "$j"
   team_id     = "\${github_team.$TEAM_NAME.id}"
   role        = "maintainer"
 }
 EOF
       elif [[ "$TEAM_ROLE" == "member" ]]; then
-        cat >> github-team-memberships-$TEAM_SLUG.tf << EOF
-resource "github_team_membership" "$TEAM_SLUG-$j" {
+        cat >> github-team-memberships-$TEAM_NAME.tf << EOF
+resource "github_team_membership" "$TEAM_NAME-$j" {
   username    = "$j"
   team_id     = "\${github_team.$TEAM_NAME.id}"
   role        = "member"
 }
 EOF
       fi
-      terraform import github_team_membership.$TEAM_SLUG-$j $i:$j
+      terraform import github_team_membership.$TEAM_NAME-$j $i:$j
     done
   done
 }
