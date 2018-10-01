@@ -12,6 +12,24 @@ API_URL_PREFIX=${API_URL_PREFIX:-'https://api.github.com'}
 ## FUNCTIONS
 ###
 
+declare_github_repository () {
+    local repo="$1"
+    local private="$2"
+    local name="$3"
+    local data="$( curl -s "${API_URL_PREFIX}/repos/${ORG}/${repo}?access_token=${GITHUB_TOKEN}" )"
+    cat << EOF
+resource "github_repository" "${name}" {
+    name          = "${repo}"
+    private       = "${private}"
+    description   = "$( jq -r .description <<< "${data}" | sed "s/\"/'/g" )"
+    has_wiki      = "$( jq -r .has_wiki <<< "${data}" )"
+    has_downloads = "$( jq -r .has_downloads <<< "${data}" )"
+    has_issues    = "$( jq -r .has_issues <<< "${data}" )"
+}
+EOF
+}
+
+
 # Public Repos
   # You can only list 100 items per page, so you can only clone 100 at a time.
   # This function uses the API to calculate how many pages of public repos you have.
@@ -27,32 +45,10 @@ limit_public_pagination () {
   # Now lets import the repos, starting with page 1 and iterating through the pages
 import_public_repos () {
   for PAGE in $(limit_public_pagination); do
-  
     for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/repos?access_token=$GITHUB_TOKEN&type=public&page=$PAGE&per_page=100" | jq -r 'sort_by(.name) | .[] | .name'); do
-  
-  
-      PUBLIC_REPO_DESCRIPTION=$(curl -s "${API_URL_PREFIX}/repos/$ORG/$i?access_token=$GITHUB_TOKEN" | jq -r .description | sed "s/\"/'/g")
-      PUBLIC_REPO_DOWNLOADS=$(curl -s "${API_URL_PREFIX}/repos/$ORG/$i?access_token=$GITHUB_TOKEN" | jq -r .has_downloads)
-      
-      PUBLIC_REPO_WIKI=$(curl -s "${API_URL_PREFIX}/repos/$ORG/$i?access_token=$GITHUB_TOKEN" | jq -r .has_wiki)
-      
-      PUBLIC_REPO_ISSUES=$(curl -s "${API_URL_PREFIX}/repos/$ORG/$i?access_token=$GITHUB_TOKEN" | jq -r .has_issues)
-     
       # Terraform doesn't like '.' in resource names, so if one exists then replace it with a dash
       TERRAFORM_PUBLIC_REPO_NAME=$(echo $i | tr  "."  "-")
-
-      cat >> github-public-repos.tf << EOF
-resource "github_repository" "$TERRAFORM_PUBLIC_REPO_NAME" {
-  name        = "$i"
-  private     = false
-  description = "$PUBLIC_REPO_DESCRIPTION"
-  has_wiki    = "$PUBLIC_REPO_WIKI"
-  has_downloads = "$PUBLIC_REPO_DOWNLOADS"
-  has_issues  = "$PUBLIC_REPO_ISSUES"
-}
-EOF
-
-      # Import the Repo
+      declare_github_repository "${i}" false "${TERRAFORM_PUBLIC_REPO_NAME}" >> github-public-repos.tf
       terraform import github_repository.$TERRAFORM_PUBLIC_REPO_NAME $i
     done
   done
@@ -70,32 +66,10 @@ limit_private_pagination () {
 
 import_private_repos () {
   for PAGE in $(limit_private_pagination); do
-
     for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/repos?access_token=$GITHUB_TOKEN&type=private&page=$PAGE&per_page=100" | jq -r 'sort_by(.name) | .[] | .name'); do
-  
-      PRIVATE_REPO_DESCRIPTION=$(curl -s "${API_URL_PREFIX}/repos/$ORG/$i?access_token=$GITHUB_TOKEN" | jq -r .description | sed "s/\"/'/g")
-      
-      PRIVATE_REPO_DOWNLOADS=$(curl -s "${API_URL_PREFIX}/repos/$ORG/$i?access_token=$GITHUB_TOKEN" | jq -r .has_downloads)
-      
-      PRIVATE_REPO_WIKI=$(curl -s "${API_URL_PREFIX}/repos/$ORG/$i?access_token=$GITHUB_TOKEN" | jq -r .has_wiki)
-      
-      PRIVATE_REPO_ISSUES=$(curl -s "${API_URL_PREFIX}/repos/$ORG/$i?access_token=$GITHUB_TOKEN" | jq -r .has_issues)
-     
       # Terraform doesn't like '.' in resource names, so if one exists then replace it with a dash
       TERRAFORM_PRIVATE_REPO_NAME=$(echo $i | tr  "."  "-")
-
-      cat >> github-private-  repos.tf << EOF
-resource "github_repository" "$TERRAFORM_PRIVATE_REPO_NAME" {
-  name        = "$i"
-  private     = true
-  description = "$PRIVATE_REPO_DESCRIPTION"
-  has_wiki    = "$PRIVATE_REPO_WIKI"
-  has_downloads = "$PRIVATE_REPO_DOWNLOADS"
-  has_issues  = "$PRIVATE_REPO_ISSUES"
-}
-
-EOF
-      # Import the Repo
+      declare_github_repository "${i}" true "${TERRAFORM_PRIVATE_REPO_NAME}" >> github-private-repos.tf
       terraform import github_repository.$TERRAFORM_PRIVATE_REPO_NAME $i
     done
   done
