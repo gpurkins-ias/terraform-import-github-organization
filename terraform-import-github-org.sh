@@ -29,6 +29,19 @@ resource "github_repository" "${name}" {
 EOF
 }
 
+declare_github_membership () {
+    local username="$1"
+    local user_url="${API_URL_PREFIX}/orgs/${ORG}/memberships/${username}?access_token=${GITHUB_TOKEN}&per_page=100"
+    local role="$( curl -s "${user_url}" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .role )"
+    cat << EOF
+resource "github_membership" "$i" {
+    username        = "${username}"
+    role            = "${role}"
+}
+EOF
+}
+
+
 
 # Public Repos
   # You can only list 100 items per page, so you can only clone 100 at a time.
@@ -78,17 +91,7 @@ import_private_repos () {
 # Users
 import_users () {
   for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/members?access_token=$GITHUB_TOKEN&per_page=100" | jq -r 'sort_by(.login) | .[] | .login'); do
- 
-  echo "${API_URL_PREFIX}/orgs/$ORG/members?access_token=$GITHUB_TOKEN&per_page=100"
-
-  TEAM_ROLE=$(curl -s "${API_URL_PREFIX}/orgs/$ORG/memberships/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .role)
-
-  cat >> github-users.tf << EOF
-resource "github_membership" "$i" {
-  username        = "$i"
-  role            = "$TEAM_ROLE"
-}
-EOF
+    declare_github_membership "$i" >> github-users.tf
     terraform import github_membership.$i $ORG:$i
   done
 }
