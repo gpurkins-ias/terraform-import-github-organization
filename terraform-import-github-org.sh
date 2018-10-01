@@ -4,8 +4,8 @@
 ###
 ## GLOBAL VARIABLES
 ###
-GITHUB_TOKEN='251daeb6b0bf671fe26ddab34b4731733b5a00a0'
-ORG='integralads'
+GITHUB_TOKEN=''
+ORG='sgleske-test'
 API_URL_PREFIX=${API_URL_PREFIX:-'https://api.github.com'}
 
 ###
@@ -84,7 +84,7 @@ import_private_repos () {
       # Terraform doesn't like '.' in resource names, so if one exists then replace it with a dash
       TERRAFORM_PRIVATE_REPO_NAME=$(echo $i | tr  "."  "-")
 
-      cat >> github-private-repos.tf << EOF
+      cat >> github-private-  repos.tf << EOF
 resource "github_repository" "$TERRAFORM_PRIVATE_REPO_NAME" {
   name        = "$i"
   private     = true
@@ -104,11 +104,15 @@ EOF
 # Users
 import_users () {
   for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/members?access_token=$GITHUB_TOKEN&per_page=100" | jq -r 'sort_by(.login) | .[] | .login'); do
+ 
+  echo "${API_URL_PREFIX}/orgs/$ORG/members?access_token=$GITHUB_TOKEN&per_page=100"
+
+  TEAM_ROLE=$(curl -s "${API_URL_PREFIX}/orgs/$ORG/memberships/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .role)
 
   cat >> github-users.tf << EOF
 resource "github_membership" "$i" {
   username        = "$i"
-  role            = "member"
+  role            = "$TEAM_ROLE"
 }
 EOF
     terraform import github_membership.$i $ORG:$i
@@ -126,14 +130,19 @@ import_teams () {
     TEAM_PRIVACY=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .privacy)
   
     TEAM_DESCRIPTION=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .description)
-  
+
+    TEAM_PARENT=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .parent.id)
+    if [[ "$TEAM_PARENT" == "null" ]]; then
+      TEAM_PARENT=""
+    fi
+
     if [[ "$TEAM_PRIVACY" == "closed" ]]; then
       cat >> github-teams-$TEAM_SLUG.tf << EOF
 resource "github_team" "$TEAM_SLUG" {
   name        = "$TEAM_NAME"
   description = "$TEAM_DESCRIPTION"
   privacy     = "closed"
-  slug        = "$TEAM_SLUG"
+  parent_team_id = "$TEAM_PARENT"
 }
 EOF
     elif [[ "$TEAM_PRIVACY" == "secret" ]]; then
@@ -142,12 +151,12 @@ resource "github_team" "$TEAM_SLUG" {
   name        = "$TEAM_NAME"
   description = "$TEAM_DESCRIPTION"
   privacy     = "secret"
-  slug        = "$TEAM_SLUG"
+  parent_team_id = "$TEAM_PARENT"
 }
 EOF
     fi
 
-    terraform import \"github_team.$TEAM_SLUG\" $i
+    terraform import github_team.$TEAM_SLUG $i
   done
 }
 
@@ -177,6 +186,16 @@ resource "github_team_membership" "$TEAM_NAME-$j" {
   role        = "member"
 }
 EOF
+      elif [[ "$TEAM_ROLE" == "admin" ]]; then
+        cat >> github-team-memberships-$TEAM_NAME.tf << EOF
+resource "github_team_membership" "$TEAM_NAME-$j" {
+  username    = "$j"
+  team_id     = "\${github_team.$TEAM_NAME.id}"
+  role        = "admin"
+}
+EOF
+
+
       fi
       terraform import github_team_membership.$TEAM_NAME-$j $i:$j
     done
