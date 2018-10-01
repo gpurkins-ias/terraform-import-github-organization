@@ -8,6 +8,8 @@ GITHUB_TOKEN=''
 ORG='sgleske-test'
 API_URL_PREFIX=${API_URL_PREFIX:-'https://api.github.com'}
 
+RECENT_SLUG=
+
 ###
 ## FUNCTIONS
 ###
@@ -41,6 +43,51 @@ resource "github_membership" "$i" {
 EOF
 }
 
+declare_github_team () {
+    local team="$1"
+    local data="$( curl -s "${API_URL_PREFIX}/teams/${team}?access_token=${GITHUB_TOKEN}&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" )"
+    local privacy="$( jq -r .privacy <<< "${data}" )"
+    local parent="$( jq -r .parent.id <<< "${data}" )"
+    RECENT_SLUG=
+    [ "${privacy}" == closed ] || [ "${privacy}" == secret ] || return 1
+    [ "${parent}" == null ] && parent=
+    RECENT_SLUG="$( jq -r .slug <<< "${data}" )"
+    cat << EOF
+resource "github_team" "${RECENT_SLUG}" {
+    name           = "$( jq -r .name <<< "${data}" )"
+    description    = "$( jq -r .description <<< "${data}" )"
+    privacy        = "${privacy}"
+    parent_team_id = "${parent}"
+}
+EOF
+    return 0
+}
+
+declare_github_team_membership () {
+    local team="$1"
+    local teamname="$2"
+    local member="$3"
+    local data="$(
+        curl -s "${API_URL_PREFIX}/teams/${team}/memberships/${member}?access_token=${GITHUB_TOKEN}&per_page=100" \
+            -H "Accept: application/vnd.github.hellcat-preview+json"
+    )"
+    local role="$( jq -r .role <<< "${data}" )"
+    case "${role}" in
+    maintainer|member|admin)
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+    cat << EOF
+resource "github_team_membership" "${teamname}-${member}" {
+    username = "${member}"
+    team_id  = "\${github_team.${teamname}.id}"
+    role     = "${role}"
+}
+EOF
+    return 0
+}
 
 
 # Public Repos
@@ -98,82 +145,25 @@ import_users () {
 
 # Teams
 import_teams () {
+  local results
+  local tempfile=github-teams.recent-slug
   for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/teams?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r 'sort_by(.name) | .[] | .id'); do
-  
-    TEAM_NAME=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .name)
-
-    TEAM_SLUG=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .slug)
-
-    TEAM_PRIVACY=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .privacy)
-  
-    TEAM_DESCRIPTION=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .description)
-
-    TEAM_PARENT=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .parent.id)
-    if [[ "$TEAM_PARENT" == "null" ]]; then
-      TEAM_PARENT=""
+    if ! declare_github_team "${i}" > "${tempfile}" ; then
+        rm -f "${tempfile}"
+        continue
     fi
-
-    if [[ "$TEAM_PRIVACY" == "closed" ]]; then
-      cat >> github-teams-$TEAM_SLUG.tf << EOF
-resource "github_team" "$TEAM_SLUG" {
-  name        = "$TEAM_NAME"
-  description = "$TEAM_DESCRIPTION"
-  privacy     = "closed"
-  parent_team_id = "$TEAM_PARENT"
-}
-EOF
-    elif [[ "$TEAM_PRIVACY" == "secret" ]]; then
-      cat >> github-teams-$TEAM_SLUG.tf << EOF
-resource "github_team" "$TEAM_SLUG" {
-  name        = "$TEAM_NAME"
-  description = "$TEAM_DESCRIPTION"
-  privacy     = "secret"
-  parent_team_id = "$TEAM_PARENT"
-}
-EOF
-    fi
-
-    terraform import github_team.$TEAM_SLUG $i
+    mv "${tempfile}" "github-teams-${RECENT_SLUG}.tf"
+    terraform import github_team.$RECENT_SLUG $i
   done
 }
 
 # Team Memberships 
 import_team_memberships () {
   for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/teams?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r 'sort_by(.slug) | .[] | .id'); do
-  
-  TEAM_NAME=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .slug)
-  
+    TEAM_NAME=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .slug)
     for j in $(curl -s "${API_URL_PREFIX}/teams/$i/members?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .[].login); do
-    
       TEAM_ROLE=$(curl -s "${API_URL_PREFIX}/teams/$i/memberships/$j?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .role)
-
-      if [[ "$TEAM_ROLE" == "maintainer" ]]; then
-        cat >> github-team-memberships-$TEAM_NAME.tf << EOF
-resource "github_team_membership" "$TEAM_NAME-$j" {
-  username    = "$j"
-  team_id     = "\${github_team.$TEAM_NAME.id}"
-  role        = "maintainer"
-}
-EOF
-      elif [[ "$TEAM_ROLE" == "member" ]]; then
-        cat >> github-team-memberships-$TEAM_NAME.tf << EOF
-resource "github_team_membership" "$TEAM_NAME-$j" {
-  username    = "$j"
-  team_id     = "\${github_team.$TEAM_NAME.id}"
-  role        = "member"
-}
-EOF
-      elif [[ "$TEAM_ROLE" == "admin" ]]; then
-        cat >> github-team-memberships-$TEAM_NAME.tf << EOF
-resource "github_team_membership" "$TEAM_NAME-$j" {
-  username    = "$j"
-  team_id     = "\${github_team.$TEAM_NAME.id}"
-  role        = "admin"
-}
-EOF
-
-
-      fi
+      declare_github_team_membership "${i}" "${TEAM_NAME}" "${j}" >> "github-team-memberships-${TEAM_NAME}.tf" || continue
       terraform import github_team_membership.$TEAM_NAME-$j $i:$j
     done
   done
