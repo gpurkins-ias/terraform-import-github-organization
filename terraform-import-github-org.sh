@@ -201,20 +201,18 @@ get_team_repos () {
   local team_name="$( jq -r .name <<< "${team_data}" )"
   local team_slug="$( jq -r .slug <<< "${team_data}" )"
   local perms=
+  local team_repo_data=
 
   for PAGE in $(limit_team_pagination); do
     for i in $(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID/repos?access_token=$GITHUB_TOKEN&page=$PAGE&per_page=100" | jq -r 'sort_by(.name) | .[] | .name'); do
     
     TERRAFORM_TEAM_REPO_NAME=$(echo $i | tr  "."  "-")
-    ADMIN_PERMS=$(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID/repos/$ORG/$i?access_token=$GITHUB_TOKEN" -H "Accept: application/vnd.github.v3.repository+json" | jq -r .permissions.admin )
-    PUSH_PERMS=$(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID/repos/$ORG/$i?access_token=$GITHUB_TOKEN" -H "Accept: application/vnd.github.v3.repository+json" | jq -r .permissions.push )
-    PULL_PERMS=$(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID/repos/$ORG/$i?access_token=$GITHUB_TOKEN" -H "Accept: application/vnd.github.v3.repository+json" | jq -r .permissions.pull )
-  
-    if [[ "$ADMIN_PERMS" == "true" ]]; then
+    team_repo_data="$( curl -s "${API_URL_PREFIX}/teams/${TEAM_ID}/repos/${ORG}/${i}?access_token=${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3.repository+json" )"
+    if [ "$( jq -r .permissions.admin <<< "${team_repo_data}" )" == true ] ; then
         perms=admin
-    elif [[ "$PUSH_PERMS" == "true" ]]; then
+    elif [ "$( jq -r .permissions.push <<< "${team_repo_data}" )" == true ] ; then
         perms=push
-    elif [[ "$PULL_PERMS" == "true" ]]; then
+    elif [ "$( jq -r .permissions.pull <<< "${team_repo_data}" )" == true ] ; then
         perms=pull
     else
         continue
