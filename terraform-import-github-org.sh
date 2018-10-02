@@ -205,20 +205,19 @@ get_team_repos () {
 
   for PAGE in $(limit_team_pagination); do
     for i in $(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID/repos?access_token=$GITHUB_TOKEN&page=$PAGE&per_page=100" | jq -r 'sort_by(.name) | .[] | .name'); do
-    
-    TERRAFORM_TEAM_REPO_NAME=$(echo $i | tr  "."  "-")
-    team_repo_data="$( curl -s "${API_URL_PREFIX}/teams/${TEAM_ID}/repos/${ORG}/${i}?access_token=${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3.repository+json" )"
-    if [ "$( jq -r .permissions.admin <<< "${team_repo_data}" )" == true ] ; then
-        perms=admin
-    elif [ "$( jq -r .permissions.push <<< "${team_repo_data}" )" == true ] ; then
-        perms=push
-    elif [ "$( jq -r .permissions.pull <<< "${team_repo_data}" )" == true ] ; then
-        perms=pull
-    else
-        continue
-    fi
-    declare_team_perms "${TEAM_SLUG}-${TERRAFORM_TEAM_REPO_NAME}" "${TEAM_ID}" "${i}" "${perms}" >> github-teams-$TEAM_SLUG.tf
-    terraform import github_team_repository.$TEAM_SLUG-$TERRAFORM_TEAM_REPO_NAME $TEAM_ID:$i
+      team_repo_data="$( curl -s "${API_URL_PREFIX}/teams/${TEAM_ID}/repos/${ORG}/${i}?access_token=${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3.repository+json" )"
+      if [ "$( jq -r .permissions.admin <<< "${team_repo_data}" )" == true ] ; then
+          perms=admin
+      elif [ "$( jq -r .permissions.push <<< "${team_repo_data}" )" == true ] ; then
+          perms=push
+      elif [ "$( jq -r .permissions.pull <<< "${team_repo_data}" )" == true ] ; then
+          perms=pull
+      else
+          continue
+      fi
+      TERRAFORM_TEAM_REPO_NAME=$(echo $i | tr  "."  "-")
+      declare_team_perms "${TEAM_SLUG}-${TERRAFORM_TEAM_REPO_NAME}" "${TEAM_ID}" "${i}" "${perms}" >> github-teams-$TEAM_SLUG.tf
+      terraform import github_team_repository.$TEAM_SLUG-$TERRAFORM_TEAM_REPO_NAME $TEAM_ID:$i
     done
   done
 }
