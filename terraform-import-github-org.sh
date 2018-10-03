@@ -230,8 +230,8 @@ get_team_repos () {
           continue
       fi
       TERRAFORM_TEAM_REPO_NAME=$(echo $i | tr  "."  "-")
-      declare_team_perms "${TEAM_SLUG}-${TERRAFORM_TEAM_REPO_NAME}" "${TEAM_ID}" "${i}" "${perms}" >> github-teams-$TEAM_SLUG.tf
-      terraform import github_team_repository.$TEAM_SLUG-$TERRAFORM_TEAM_REPO_NAME $TEAM_ID:$i
+      declare_team_perms "${team_slug}-${TERRAFORM_TEAM_REPO_NAME}" "${TEAM_ID}" "${i}" "${perms}" >> github-teams-${team_slug}.tf
+      terraform import github_team_repository.$team_slug-$TERRAFORM_TEAM_REPO_NAME $TEAM_ID:$i
     done
   done
 }
