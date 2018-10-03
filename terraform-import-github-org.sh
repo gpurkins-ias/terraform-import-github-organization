@@ -150,11 +150,25 @@ import_private_repos () {
 }
 
 # Users
+get_user_pagination () {
+    local user_pages="$(
+        curl -I "${API_URL_PREFIX}/orgs/${ORG}/members?access_token=${GITHUB_TOKEN}&per_page=100" | grep -Eo '&page=\d+' | grep -Eo '[0-9]+' | tail -1
+    )"
+    echo "${user_pages:-1}"
+}
+
+limit_user_pagination () {
+    seq $(get_user_pagination)
+}
+
 import_users () {
-  for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/members?access_token=$GITHUB_TOKEN&per_page=100" | jq -r 'sort_by(.login) | .[] | .login'); do
-    declare_github_membership "$i" >> github-users.tf
-    terraform import github_membership.$i $ORG:$i
-  done
+    local page
+    for page in $(limit_user_pagination) ; do
+        for i in $(curl -s "${API_URL_PREFIX}/orgs/${ORG}/members?access_token=${GITHUB_TOKEN}&page=${page}&per_page=100" | jq -r 'sort_by(.login) | .[] | .login'); do
+            declare_github_membership "$i" >> github-users.tf
+            terraform import github_membership.$i $ORG:$i
+        done
+    done
 }
 
 # Teams
