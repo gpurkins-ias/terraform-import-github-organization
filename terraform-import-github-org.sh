@@ -5,7 +5,7 @@
 ## GLOBAL VARIABLES
 ###
 GITHUB_TOKEN=''
-ORG='sgleske-test'
+ORG='integralads'
 API_URL_PREFIX=${API_URL_PREFIX:-'https://api.github.com'}
 
 RECENT_SLUG=
@@ -188,9 +188,11 @@ import_teams () {
 # Team Memberships 
 import_team_memberships () {
   for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/teams?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r 'sort_by(.slug) | .[] | .id'); do
+    sleep 2
     TEAM_NAME=$(curl -s "${API_URL_PREFIX}/teams/$i?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .slug)
     for j in $(curl -s "${API_URL_PREFIX}/teams/$i/members?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .[].login); do
       TEAM_ROLE=$(curl -s "${API_URL_PREFIX}/teams/$i/memberships/$j?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r .role)
+      sleep 2
       declare_github_team_membership "${i}" "${TEAM_NAME}" "${j}" >> "github-team-memberships-${TEAM_NAME}.tf" || continue
       terraform import github_team_membership.$TEAM_NAME-$j $i:$j
     done
@@ -208,6 +210,7 @@ limit_team_pagination () {
 
 get_team_ids () {
   curl -s "${API_URL_PREFIX}/orgs/$ORG/teams?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r 'sort_by(.name) | .[] | .id'
+  sleep 2
 }
 
 get_team_repos () {
@@ -220,6 +223,7 @@ get_team_repos () {
   for PAGE in $(limit_team_pagination); do
     for i in $(curl -s "${API_URL_PREFIX}/teams/$TEAM_ID/repos?access_token=$GITHUB_TOKEN&page=$PAGE&per_page=100" | jq -r 'sort_by(.name) | .[] | .name'); do
       team_repo_data="$( curl -s "${API_URL_PREFIX}/teams/${TEAM_ID}/repos/${ORG}/${i}?access_token=${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3.repository+json" )"
+      sleep 2
       if [ "$( jq -r .permissions.admin <<< "${team_repo_data}" )" == true ] ; then
           perms=admin
       elif [ "$( jq -r .permissions.push <<< "${team_repo_data}" )" == true ] ; then
@@ -251,7 +255,7 @@ import_all_team_resources () {
 ###
 ## DO IT YO
 ###
-import_public_repos
-import_private_repos
-import_users
+#import_public_repos
+#import_private_repos
+#import_users
 import_all_team_resources
