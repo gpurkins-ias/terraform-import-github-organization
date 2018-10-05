@@ -176,12 +176,11 @@ import_teams () {
   local results
   local tempfile=github-teams.recent-slug
   for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/teams?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r 'sort_by(.name) | .[] | .id'); do
-    if ! declare_github_team "${i}" > "${tempfile}" ; then
-        rm -f "${tempfile}"
-        continue
+    if declare_github_team "${i}" > "${tempfile}" ; then
+        < "${tempfile}" grep -v '^ *parent_team_id *= *" *"$' > "github-teams-${RECENT_SLUG}.tf"
+        terraform import github_team.$RECENT_SLUG $i
     fi
-    mv "${tempfile}" "github-teams-${RECENT_SLUG}.tf"
-    terraform import github_team.$RECENT_SLUG $i
+    rm -f "${tempfile}"
   done
 }
 
