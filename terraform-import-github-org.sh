@@ -19,11 +19,13 @@ declare_github_repository () {
     local private="$2"
     local name="$3"
     local data="$( curl -s "${API_URL_PREFIX}/repos/${ORG}/${repo}?access_token=${GITHUB_TOKEN}" )"
+    local description="$( jq -r .description <<< "${data}" | sed "s/\"/'/g"  )"
+    [ "${description}" == null ] && description=
     cat << EOF
 resource "github_repository" "${name}" {
     name          = "${repo}"
     private       = "${private}"
-    description   = "$( jq -r .description <<< "${data}" | sed "s/\"/'/g" )"
+    description   = "${description}"
     has_wiki      = "$( jq -r .has_wiki <<< "${data}" )"
     has_downloads = "$( jq -r .has_downloads <<< "${data}" )"
     has_issues    = "$( jq -r .has_issues <<< "${data}" )"
@@ -48,6 +50,8 @@ declare_github_team () {
     local data="$( curl -s "${API_URL_PREFIX}/teams/${team}?access_token=${GITHUB_TOKEN}&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" )"
     local privacy="$( jq -r .privacy <<< "${data}" )"
     local parent="$( jq -r .parent.id <<< "${data}" )"
+    local description="$( jq -r .description <<< "${data}" | sed "s/\"/'/g"  )"
+    [ "${description}" == null ] && description=
     RECENT_SLUG=
     [ "${privacy}" == closed ] || [ "${privacy}" == secret ] || return 1
     [ "${parent}" == null ] && parent=
@@ -55,7 +59,7 @@ declare_github_team () {
     cat << EOF
 resource "github_team" "${RECENT_SLUG}" {
     name           = "$( jq -r .name <<< "${data}" )"
-    description    = "$( jq -r .description <<< "${data}" )"
+    description    = "${description}"
     privacy        = "${privacy}"
     parent_team_id = "${parent}"
 }
@@ -122,7 +126,7 @@ import_public_repos () {
     for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/repos?access_token=$GITHUB_TOKEN&type=public&page=$PAGE&per_page=100" | jq -r 'sort_by(.name) | .[] | .name'); do
       # Terraform doesn't like '.' in resource names, so if one exists then replace it with a dash
       TERRAFORM_PUBLIC_REPO_NAME=$(echo $i | tr  "."  "-")
-      declare_github_repository "${i}" false "${TERRAFORM_PUBLIC_REPO_NAME}" >> github-public-repos.tf
+      declare_github_repository "${i}" false "${TERRAFORM_PUBLIC_REPO_NAME}" | grep -v '^ *description *= *" *"$' >> github-public-repos.tf
       terraform import github_repository.$TERRAFORM_PUBLIC_REPO_NAME $i
     done
   done
@@ -177,7 +181,7 @@ import_teams () {
   local tempfile=github-teams.recent-slug
   for i in $(curl -s "${API_URL_PREFIX}/orgs/$ORG/teams?access_token=$GITHUB_TOKEN&per_page=100" -H "Accept: application/vnd.github.hellcat-preview+json" | jq -r 'sort_by(.name) | .[] | .id'); do
     if declare_github_team "${i}" > "${tempfile}" ; then
-        < "${tempfile}" grep -v '^ *parent_team_id *= *" *"$' > "github-teams-${RECENT_SLUG}.tf"
+        < "${tempfile}" grep -v '^ *\(parent_team_id\|description\) *= *" *"$' > "github-teams-${RECENT_SLUG}.tf"
         terraform import github_team.$RECENT_SLUG $i
     fi
     rm -f "${tempfile}"
