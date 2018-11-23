@@ -19,8 +19,11 @@ declare_github_repository () {
     local private="$2"
     local name="$3"
     local data="$( curl -s "${API_URL_PREFIX}/repos/${ORG}/${repo}?access_token=${GITHUB_TOKEN}" )"
+    local topicsdata=$( curl -s "${API_URL_PREFIX}/repos/${ORG}/${repo}/topics?access_token=${GITHUB_TOKEN}" -H "Accept: application/vnd.github.mercy-preview+json" )
     local description="$( jq -r .description <<< "${data}" | sed "s/\"/'/g"  )"
     [ "${description}" == null ] && description=
+    local homepage_url="$( jq -r .homepage <<< "${data}" | sed "s/\"/'/g"  )"
+    [ "${homepage_url}" == null ] && homepage_url=
     cat << EOF
 resource "github_repository" "${name}" {
     name          = "${repo}"
@@ -29,6 +32,10 @@ resource "github_repository" "${name}" {
     has_wiki      = "$( jq -r .has_wiki <<< "${data}" )"
     has_downloads = "$( jq -r .has_downloads <<< "${data}" )"
     has_issues    = "$( jq -r .has_issues <<< "${data}" )"
+    homepage_url = "${homepage_url}"
+    default_branch = "$( jq -r .default_branch <<< "${data}" )"
+    archived = "$( jq -r .archived <<< "${data}" )"
+    topics = $( jq -c '.names'  <<< "${topicsdata}" )
 }
 EOF
 }
